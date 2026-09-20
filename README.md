@@ -30,7 +30,7 @@ or for local development:
 
 ```sh
 git clone https://github.com/Daviey/omp-worktree-guard.git
-omp plugin link ~/dev/worktree-guard-plugin
+omp plugin link <path-to-clone>
 ```
 
 ## Behavior details
