@@ -24,8 +24,8 @@ Because there is no cwd or hook-location anchor, the same hook file works repo-l
 
 ```sh
 omp plugin install github:Daviey/omp-worktree-guard
-# or pin a release tag:
-omp plugin install Daviey/omp-worktree-guard#v0.1.0
+# or pin a release tag (pinned installs never auto-update):
+omp plugin install github:Daviey/omp-worktree-guard#v0.1.0
 ```
 
 or for local development:
