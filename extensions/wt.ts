@@ -89,10 +89,6 @@ export default function wtCommand(pi: ExtensionAPI): void {
 				return;
 			}
 
-			if (sub !== "merge" && sub !== "clean" && argv[1] === undefined && sub !== "list") {
-				await ctx.ui.notify("usage: /wt <feature> | /wt merge <feature> | /wt list | /wt clean", "error");
-				return;
-			}
 
 			// default: /wt <feature> — create (or reuse) the worktree
 			const feature2 = sub;
