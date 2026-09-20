@@ -30,7 +30,7 @@
 //
 // Works on omp v18+ (HookAPI from @oh-my-pi/pi-coding-agent/extensibility/hooks).
 
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import type { HookAPI } from "@oh-my-pi/pi-coding-agent/extensibility/hooks";
 
 const BLOCKED_TOOLS: Record<string, true> = { edit: true, write: true };

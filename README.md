@@ -50,6 +50,7 @@ omp plugin link ~/dev/worktree-guard-plugin
 
 - [ShakhzodbekBabakulov/worktree-guard](https://github.com/ShakhzodbekBabakulov/worktree-guard) — Claude Code `/work`→`/done` slash-command workflow (no blocking guard).
 - [Pfgoriaux/pi-worktree-guard](https://github.com/Pfgoriaux/pi-worktree-guard) — concurrent pi session claim-mutex blocking `git stash`/`checkout` (different failure mode).
+- [earneet/worktree-guard](https://github.com/earneet/worktree-guard) — Kimi Code plugin with PreToolUse hook, per-repo coexistence yield, and worktree lifecycle scripts.
 
 ## License
 
