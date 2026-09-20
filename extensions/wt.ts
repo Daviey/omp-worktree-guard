@@ -39,6 +39,31 @@ export default function wtCommand(pi: ExtensionAPI): void {
 				return;
 			}
 
+			if (sub === "clean") {
+				const list = await git(pi, ctx, "worktree", "list", "--porcelain");
+				// remove every worktree whose branch is fully merged into HEAD;
+				// unmerged branches keep their worktrees
+				let removed = 0;
+				let kept = 0;
+				for (const { block, m } of lines(list.stdout, /^worktree (.+)$/m)) {
+					const path = m[1];
+					const branch = /^branch refs\/heads\/(.+)$/m.exec(block)?.[1];
+					if (!branch) continue;
+					const merged = await git(pi, ctx, "merge-base", "--is-ancestor", branch, "HEAD");
+					if (merged.code !== 0) {
+						kept++;
+						continue;
+					}
+					const r = await git(pi, ctx, "worktree", "remove", path);
+					if (r.code === 0) removed++;
+				}
+				await ctx.ui.notify(
+					removed ? `removed ${removed} merged worktree(s), ${kept} kept (unmerged)` : "no merged worktrees to remove",
+					"info",
+				);
+				return;
+			}
+
 			const feature = argv[1];
 			if (!feature) {
 				await ctx.ui.notify("usage: /wt <feature> | /wt merge <feature> | /wt list | /wt clean", "error");
@@ -64,30 +89,6 @@ export default function wtCommand(pi: ExtensionAPI): void {
 				return;
 			}
 
-			if (sub === "clean") {
-				const list = await git(pi, ctx, "worktree", "list", "--porcelain");
-				// remove every worktree whose branch is fully merged into HEAD;
-				// unmerged branches keep their worktrees
-				let removed = 0;
-				let kept = 0;
-				for (const { block, m } of lines(list.stdout, /^worktree (.+)$/m)) {
-					const path = m[1];
-					const branch = /^branch refs\/heads\/(.+)$/m.exec(block)?.[1];
-					if (!branch) continue;
-					const merged = await git(pi, ctx, "merge-base", "--is-ancestor", branch, "HEAD");
-					if (merged.code !== 0) {
-						kept++;
-						continue;
-					}
-					const r = await git(pi, ctx, "worktree", "remove", path);
-					if (r.code === 0) removed++;
-				}
-				await ctx.ui.notify(
-					removed ? `removed ${removed} merged worktree(s), ${kept} kept (unmerged)` : "no merged worktrees to remove",
-					"info",
-				);
-				return;
-			}
 
 
 			// default: /wt <feature> — create (or reuse) the worktree
