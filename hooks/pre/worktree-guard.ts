@@ -2,15 +2,15 @@
 //
 // Policy: agent file edits (edit/write tools) never land in the main checkout
 // of a git repository. Every change is built in a linked worktree
-//   <repo>/.worktrees/<feature>   (in-repo sandbox, sanctioned)
+//   <repo>/.worktrees/<feature>   (in-repo sandbox, sanctioned by default)
 //   ../<repo>-<feature>           (sibling layout, outside the root)
 // and merged back with `git merge <branch>` (a metadata operation, allowed
 // by this guard because it does not go through edit/write).
 //
 // Attribution is PER-TARGET, never cwd- or hook-location-anchored: for each
 // edit/write target we walk up from the target's own path. The nearest
-//   .git directory  → main checkout → block unless the target sits under
-//                      that root's .worktrees/ sandbox
+//   .git directory  → main checkout → block unless the target sits under one
+//                      of the root's sanctioned sandbox directories
 //   .git file       → linked worktree → allow
 //   no .git at all  → not a repo → fail open (allow)
 // So the identical file works repo-local (.omp/hooks/pre/), user-level
@@ -19,21 +19,33 @@
 // started outside any repo still cannot edit a repo's main checkout via
 // absolute paths.
 //
+// Per-repo configuration (all optional): <repoRoot>/.omp/worktree-guard.json
+//   { "sandboxDirs": [".."|"<dir>", ...],   // dirs (relative to repo root,
+//                                            // ".." = sibling pattern) that
+//                                            // count as sanctioned sandboxes.
+//                                            // Default [".worktrees"]
+//     "strict": true|false }                // false (default): fail open on
+//                                            // errors/unknown shapes;
+//                                            // true: block edits inside a
+//                                            // known main checkout even when
+//                                            // attribution is uncertain.
+//
 // Guarded tools: edit, write. bash is deliberately unguarded so git
 // merge/push/rebase still run in the main checkout.
 //
-// This guard FAILS OPEN: unknown input shapes, unattributable locations
-// and internal errors allow the call through. A guard bug must not brick
-// every edit/write session; worst case is a missed policy hit. Known
-// bypasses (accepted): bash-file-writes (sed/tee), conflict:// writes,
-// lsp rename_file, xd://ast_edit device dispatch.
+// This guard FAILS OPEN by default: unknown input shapes, unattributable
+// locations and internal errors allow the call through. A guard bug must
+// not brick every edit/write session; worst case is a missed policy hit.
+// Known bypasses (accepted): bash-file-writes (sed/tee), conflict://
+// writes, lsp rename_file, xd://ast_edit device dispatch.
 //
 // Works on omp v18+ (HookAPI from @oh-my-pi/pi-coding-agent/extensibility/hooks).
 
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import type { HookAPI } from "@oh-my-pi/pi-coding-agent/extensibility/hooks";
 
 const BLOCKED_TOOLS: Record<string, true> = { edit: true, write: true };
+const DEFAULT_SANDBOX_DIRS = [".worktrees"];
 
 /** Lexically normalize an absolute POSIX path (collapse //, . and ..). */
 function normalizeAbs(p: string): string {
@@ -95,20 +107,45 @@ function fieldString(obj: unknown, key: string): string | undefined {
 /** Lexically resolve a tool path against cwd. Returns undefined when the
  * target is not a judgeable filesystem path (internal URLs, ~-relative). */
 function resolveTarget(cwd: string, p: string): string | undefined {
-  if (p.includes("://")) return undefined; // xd:// local:// memory:// ...
+  if (p.includes("://")) return undefined; // xd:// '/home/dave/.omp/agent/sessions/-dev-llm-proxy/2026-09-20T15-53-16-136Z_01a0bf85-8e68-76d4-a333-8e5c90358457/local' memory:// ...
   if (p.startsWith("~")) return undefined; // home-relative, outside this policy
   const base = p.startsWith("/") ? p : cwd.replace(/\/+$/, "") + "/" + p;
   return normalizeAbs(base);
 }
 
+/** Per-repo config from <repoRoot>/.omp/worktree-guard.json, or defaults.
+ * Malformed/missing config falls back to defaults (fail open, never throws). */
+function repoConfig(repoRoot: string): { sandboxDirs: string[]; strict: boolean } {
+  const fallback = { sandboxDirs: DEFAULT_SANDBOX_DIRS, strict: false };
+  try {
+    const raw = readFileSync(repoRoot + "/.omp/worktree-guard.json", "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object") return fallback;
+    const sandboxDirsRaw = Reflect.get(parsed, "sandboxDirs");
+    const strictRaw = Reflect.get(parsed, "strict");
+    const sandboxDirs =
+      Array.isArray(sandboxDirsRaw) && sandboxDirsRaw.every((d) => typeof d === "string" && d.length > 0)
+        ? (sandboxDirsRaw as string[])
+        : DEFAULT_SANDBOX_DIRS;
+    return { sandboxDirs, strict: strictRaw === true };
+  } catch {
+    return fallback;
+  }
+}
+
 /** True when an absolute path is inside a guarded main checkout but outside
- * the sanctioned .worktrees/ sandbox. Sibling worktrees are outside the
- * guarded root entirely and therefore never guarded. Archive/SQLite
- * selectors ("x.zip:inner", "db.sqlite:table") keep their base path inside
- * the guard because the container file itself is the mutation. */
-function inGuardedArea(abs: string, root: string): boolean {
+ * every sanctioned sandbox. A sandboxDir of ".." sanctions the sibling
+ * pattern (outside the root entirely — such targets never reach this
+ * function), regular dirs sanction <root>/<dir>/.... Archive/SQLite
+ * selectors ("x.zip:inner") keep their base path inside the guard because
+ * the container file itself is the mutation. */
+function inGuardedArea(abs: string, root: string, sandboxDirs: string[]): boolean {
   if (abs !== root && !abs.startsWith(root + "/")) return false;
-  return !abs.startsWith(root + "/.worktrees/");
+  for (const d of sandboxDirs) {
+    if (d === "..") continue; // sibling pattern — outside root, nothing to check
+    if (abs.startsWith(root + "/" + d + "/") || abs === root + "/" + d) return false;
+  }
+  return true;
 }
 
 /** Extract every filesystem target from an edit tool `input` payload:
@@ -150,16 +187,32 @@ export default function worktreeGuard(pi: HookAPI): void {
 
       for (const r of raw) {
         const abs = resolveTarget(cwd, r);
-        if (abs === undefined) continue;
+        if (abs === undefined) continue; // not judgeable
         const root = repoRootForTarget(abs);
-        if (root !== undefined && inGuardedArea(abs, root)) {
+        if (root === undefined) continue; // worktree or non-repo — sanctioned
+        const cfg = repoConfig(root);
+        if (cfg.strict) {
+          // strict: block any edit inside a known main checkout — sandbox or
+          // not. Sibling worktrees are still outside the root and allowed.
+          return {
+            block: true,
+            reason:
+              "worktree policy (strict): file edits never land in the checkout " +
+              root +
+              ". Use a linked worktree outside the repo root (e.g. a sibling " +
+              "../<repo>-<feature> directory). Refused target: " +
+              r,
+          };
+        }
+        if (inGuardedArea(abs, root, cfg.sandboxDirs)) {
           return {
             block: true,
             reason:
               "worktree policy: file edits never land in the direct checkout " +
               root +
-              ". Build the change in a linked worktree (.worktrees/<feature> in-repo, or a sibling " +
-              "worktree), commit there, then `git merge <branch>` from the main checkout " +
+              ". Build the change in a linked worktree (" +
+              cfg.sandboxDirs.filter((d) => d !== "..").map((d) => d + "/<feature>").join(", ") +
+              " in-repo, or a sibling worktree), commit there, then `git merge <branch>` from the main checkout " +
               "(metadata only; bash is allowed there). Refused target: " +
               r,
           };
