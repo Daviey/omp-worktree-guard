@@ -1,7 +1,7 @@
 {
   "name": "omp-worktree-guard",
   "version": "0.2.0",
-  "description": "omp plugin: enforce the git-worktree isolation policy — agent file edits never land in the main checkout",
+  "description": "omp plugin: enforce the git-worktree isolation policy \u2014 agent file edits never land in the main checkout",
   "license": "MIT",
   "keywords": [
     "omp",
@@ -20,11 +20,12 @@
     "hooks/",
     "skills/",
     "extensions/",
+    "tests/",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "bun test hooks/pre/*.test.ts"
+    "test": "bun test tests/"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0"
@@ -32,7 +33,9 @@
   "omp": {
     "name": "worktree-guard",
     "description": "Block edit/write on the main checkout of any git repo; allow linked worktrees and .worktrees/ sandboxes. Fails open.",
-    "extensions": ["extensions/wt.ts"],
+    "extensions": [
+      "extensions/wt.ts"
+    ],
     "features": {
       "wt-command": {
         "description": "/wt slash command: create/merge/list/clean linked worktrees",

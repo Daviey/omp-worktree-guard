@@ -9,7 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import guard from "./worktree-guard";
+import guard from "../hooks/pre/worktree-guard";
 
 export interface BlockResult {
 	block: boolean;

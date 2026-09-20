@@ -12,7 +12,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun test hooks/pre/
+      - run: bun test tests/
       - run: |
           for f in hooks/pre/worktree-guard.ts extensions/wt.ts; do
             bun -e "await import('./$f')" || exit 1

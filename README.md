@@ -78,7 +78,7 @@ Missing or malformed config falls back to defaults — never throws.
 ## Development
 
 ```sh
-bun test hooks/pre/    # unit tests (real temp-dir git repos)
+bun test tests/    # unit tests (real temp-dir git repos)
 ```
 
 ## Prior art / adjacent

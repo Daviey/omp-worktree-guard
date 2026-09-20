@@ -52,8 +52,13 @@ export default function wtCommand(pi: ExtensionAPI): void {
 					return;
 				}
 				const rm = await git(pi, ctx, "worktree", "remove", `.worktrees/${feature}`);
+				if (rm.code !== 0) {
+					await ctx.ui.notify(`merged ${feature}, but worktree removal failed: ${rm.stderr.trim()}`, "error");
+					return;
+				}
+				const bd = await git(pi, ctx, "branch", "-d", feature);
 				await ctx.ui.notify(
-					`merged ${feature}${rm.code === 0 ? `, removed .worktrees/${feature}` : ` (worktree removal: ${rm.stderr.trim()})`}`,
+					`merged ${feature}, removed .worktrees/${feature}${bd.code === 0 ? `, deleted branch ${feature}` : ` (branch delete: ${bd.stderr.trim()})`}`,
 					"success",
 				);
 				return;
