@@ -113,6 +113,51 @@ function resolveTarget(cwd: string, p: string): string | undefined {
   return normalizeAbs(base);
 }
 
+/**
+ * Sandbox root when the SESSION itself runs inside an isolation sandbox,
+ * undefined when it runs in (or above) a plain main checkout.
+ *
+ * Two shapes count:
+ *  1. CWD under the omp isolation base (~/.omp/wt, or $OMP_WORKTREE_DIR /
+ *     settings override) — the PAL's ZFS clones / overlays / rcopy mounts
+ *     materialise at <base>/t<digest>/m. No .git needed: zfs clones carry
+ *     the repo copy without a .git dir at the mount root.
+ *  2. CWD's repo root is a linked git worktree (walk-up hits a `.git` FILE).
+ *
+ * Scoped exemption: targets outside the sandbox root still go through the
+ * normal per-target attribution, so absolute-path escapes to the real main
+ * checkout keep blocking.
+ */
+function isolatedSessionRoot(cwd: string): string | undefined {
+  if (cwd.length === 0) return undefined;
+  const base = isolationBaseDir();
+  const normCwd = normalizeAbs(cwd);
+  const normBase = normalizeAbs(base);
+  if (normCwd === normBase || normCwd.startsWith(normBase + "/")) return normCwd;
+  // Linked-worktree session: repoRootForTarget returns undefined for a
+  // `.git`-file root, but we need the root itself to scope the exemption.
+  let dir = normCwd;
+  for (;;) {
+    const dotGit = dir + "/.git";
+    const kind = statKind(dotGit);
+    if (kind === "file") return dir; // linked worktree root — sandboxed session
+    if (kind === "dir") return undefined; // main checkout — not isolated
+    const cut = dir.lastIndexOf("/");
+    if (cut <= 0) return undefined;
+    dir = dir.slice(0, cut);
+  }
+}
+
+/** Isolation base dir: $OMP_WORKTREE_DIR or ~/.omp/wt (pi-utils getWorktreesDir). */
+function isolationBaseDir(): string {
+  const envDir =
+    typeof process !== "undefined" && process.env ? process.env.OMP_WORKTREE_DIR : undefined;
+  if (envDir && envDir.length > 0) return envDir;
+  const home =
+    typeof process !== "undefined" && process.env ? process.env.HOME : undefined;
+  return (home ?? "") + "/.omp/wt";
+}
+
 /** Per-repo config from <repoRoot>/.omp/worktree-guard.json, or defaults.
  * Malformed/missing config falls back to defaults (fail open, never throws). */
 function repoConfig(repoRoot: string): { sandboxDirs: string[]; strict: boolean } {
@@ -165,11 +210,16 @@ export default function worktreeGuard(pi: HookAPI): void {
     try {
       const tool = fieldString(event, "toolName") ?? "";
       if (!BLOCKED_TOOLS[tool]) return;
-
       const cwd =
         fieldString(ctx, "cwd") ||
         (typeof process !== "undefined" && process.cwd ? process.cwd() : "");
 
+      // Session already runs inside an isolation sandbox (ZFS clone, overlay,
+      // or any linked worktree): the checkout being edited there is a private
+      // copy, so the guard has nothing to protect. An absolute-path escape to
+      // the real main checkout still blocks below (repoRootForTarget finds
+      // its .git dir).
+      if (isolatedSessionRoot(cwd) !== undefined) return;
       const raw: string[] = [];
       const input = Reflect.get(event, "input");
 

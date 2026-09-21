@@ -178,3 +178,50 @@ describe("per-repo config", () => {
 		expect(r?.block).toBeUndefined();
 	});
 });
+
+describe("isolated session exemption", () => {
+	test("allows edits when the session cwd sits under the omp isolation base (zfs clone)", async () => {
+		// Fake an isolation clone: <base>/t<digest>/m/<copy of repo files>
+		const isoRoot = path.join(path.dirname(main), "fake-wt", "tabc123", "m");
+		mkdirSync(isoRoot, { recursive: true });
+		writeFileSync(path.join(isoRoot, "f.txt"), "cloned");
+		// No .git at all — the zfs clone shape this host produces.
+		const r = await api.fire(editEvent("write", { path: "new.txt", content: "x" }, isoRoot), {
+			cwd: isoRoot,
+		});
+		expect(r?.block).toBeUndefined();
+	});
+
+	test("isolation base honors OMP_WORKTREE_DIR override", async () => {
+		const customBase = path.join(path.dirname(main), "custom-wt");
+		const isoRoot = path.join(customBase, "txyz", "m");
+		mkdirSync(isoRoot, { recursive: true });
+		process.env.OMP_WORKTREE_DIR = customBase;
+		try {
+			const r = await api.fire(editEvent("write", { path: "new.txt", content: "x" }, isoRoot), {
+				cwd: isoRoot,
+			});
+			expect(r?.block).toBeUndefined();
+		} finally {
+			delete process.env.OMP_WORKTREE_DIR;
+		}
+	});
+
+	test("allows edits when the session cwd is a linked git worktree", async () => {
+		// `sibling` is a real linked worktree (created in beforeEach).
+		const r = await api.fire(editEvent("write", { path: "new.txt", content: "x" }, sibling), {
+			cwd: sibling,
+		});
+		expect(r?.block).toBeUndefined();
+	});
+
+	test("absolute-path escape from an isolated session to the real main checkout still blocks", async () => {
+		const isoRoot = path.join(path.dirname(main), "fake-wt2", "tdef456", "m");
+		mkdirSync(isoRoot, { recursive: true });
+		const r = await api.fire(
+			editEvent("write", { path: path.join(main, "escaped.txt"), content: "x" }, isoRoot),
+			{ cwd: isoRoot },
+		);
+		expect(r?.block).toBe(true);
+	});
+});
