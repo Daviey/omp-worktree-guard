@@ -216,12 +216,21 @@ describe("isolated session exemption", () => {
 	});
 
 	test("absolute-path escape from an isolated session to the real main checkout still blocks", async () => {
-		const isoRoot = path.join(path.dirname(main), "fake-wt2", "tdef456", "m");
+		const fakeBase = path.join(path.dirname(main), "fake-wt2");
+		const isoRoot = path.join(fakeBase, "tdef456", "m");
 		mkdirSync(isoRoot, { recursive: true });
-		const r = await api.fire(
-			editEvent("write", { path: path.join(main, "escaped.txt"), content: "x" }, isoRoot),
-			{ cwd: isoRoot },
-		);
-		expect(r?.block).toBe(true);
+		// Session IS recognized as isolated (cwd under the base) — the target
+		// escapes to the real main checkout, which must still block.
+		process.env.OMP_WORKTREE_DIR = fakeBase;
+		try {
+			const r = await api.fire(
+				editEvent("write", { path: path.join(main, "escaped.txt"), content: "x" }, isoRoot),
+				{ cwd: isoRoot },
+			);
+			expect(r?.block).toBe(true);
+			expect(r?.reason).toContain("worktree policy");
+		} finally {
+			delete process.env.OMP_WORKTREE_DIR;
+		}
 	});
 });

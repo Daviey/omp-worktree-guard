@@ -215,11 +215,11 @@ export default function worktreeGuard(pi: HookAPI): void {
         (typeof process !== "undefined" && process.cwd ? process.cwd() : "");
 
       // Session already runs inside an isolation sandbox (ZFS clone, overlay,
-      // or any linked worktree): the checkout being edited there is a private
-      // copy, so the guard has nothing to protect. An absolute-path escape to
-      // the real main checkout still blocks below (repoRootForTarget finds
-      // its .git dir).
-      if (isolatedSessionRoot(cwd) !== undefined) return;
+      // or any linked worktree): targets INSIDE the sandbox hit a private
+      // copy, so there is nothing to protect there. Per-target, not a blanket
+      // early-return: an absolute-path escape to the real main checkout of
+      // the same repo still blocks (repoRootForTarget finds its .git dir).
+      const sandbox = isolatedSessionRoot(cwd);
       const raw: string[] = [];
       const input = Reflect.get(event, "input");
 
@@ -238,6 +238,7 @@ export default function worktreeGuard(pi: HookAPI): void {
       for (const r of raw) {
         const abs = resolveTarget(cwd, r);
         if (abs === undefined) continue; // not judgeable
+        if (sandbox !== undefined && (abs === sandbox || abs.startsWith(sandbox + "/"))) continue;
         const root = repoRootForTarget(abs);
         if (root === undefined) continue; // worktree or non-repo — sanctioned
         const cfg = repoConfig(root);
