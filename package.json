@@ -1,6 +1,6 @@
 {
   "name": "omp-worktree-guard",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "omp plugin: enforce the git-worktree isolation policy \u2014 agent file edits never land in the main checkout",
   "license": "MIT",
   "keywords": [
